@@ -41,7 +41,7 @@ It can be rebuilt from scratch with a few `make` commands and destroyed just as 
 ## 🏗️ Architecture
 
 <div align="center">
-  <img src="docs/images/skyforge-architecture.gif" alt="SkyForge animated architecture: Jenkins pipeline stages, GitOps with ArgoCD, Kubernetes cluster and monitoring on AWS" width="900">
+  <img src="docs/images/skyforge-architecture.gif" alt="SkyForge animated architecture: Jenkins pipeline stages, GitOps with ArgoCD, Kubernetes cluster and monitoring on AWS" width="700">
   <br>
   <sub>Animated diagram generated as code: <a href="docs/images/make_architecture_gif.py">docs/images/make_architecture_gif.py</a></sub>
 </div>
