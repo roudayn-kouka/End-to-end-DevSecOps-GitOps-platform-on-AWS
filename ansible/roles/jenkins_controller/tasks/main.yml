@@ -1,0 +1,164 @@
+---
+# Jenkins controller, configured 100% as code:
+#   plugins   -> files/plugins.txt installed by jenkins-plugin-manager
+#   settings  -> templates/jenkins.yaml.j2 (Configuration as Code)
+#   secrets   -> one file per secret in casc-secrets/ (never written into jenkins.yaml)
+#   job       -> Job DSL seed inside jenkins.yaml
+
+- name: Install Java
+  ansible.builtin.apt:
+    name: "{{ java_package }}"
+    state: present
+    update_cache: true
+
+- name: Download the Jenkins apt key
+  ansible.builtin.get_url:
+    url: "{{ jenkins_repo_key_url }}"
+    dest: /etc/apt/keyrings/jenkins.asc
+    mode: "0644"
+
+- name: Add the Jenkins LTS apt repository
+  ansible.builtin.apt_repository:
+    repo: deb [signed-by=/etc/apt/keyrings/jenkins.asc] https://pkg.jenkins.io/debian-stable binary/
+    filename: jenkins
+    state: present
+
+- name: Install Jenkins
+  ansible.builtin.apt:
+    name: jenkins
+    state: present
+    update_cache: true
+
+- name: Create configuration directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: jenkins
+    group: jenkins
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ jenkins_casc_dir }}", mode: "0750" }
+    - { path: "{{ jenkins_secrets_dir }}", mode: "0700" }
+    - { path: "{{ jenkins_home }}/.ssh", mode: "0700" }
+
+- name: Create the systemd drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/jenkins.service.d
+    state: directory
+    mode: "0755"
+
+- name: Configure the Jenkins service (skip setup wizard, enable JCasC)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/jenkins.service.d/override.conf
+    content: |
+      [Service]
+      Environment="JAVA_OPTS=-Djava.awt.headless=true -Djenkins.install.runSetupWizard=false"
+      Environment="CASC_JENKINS_CONFIG={{ jenkins_casc_dir }}"
+      Environment="SECRETS={{ jenkins_secrets_dir }}"
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart jenkins
+
+# ---------------------------------------------------------------- plugins
+- name: Download jenkins-plugin-manager
+  ansible.builtin.get_url:
+    url: "https://github.com/jenkinsci/plugin-installation-manager-tool/releases/download/\
+      {{ jenkins_plugin_manager_version }}/jenkins-plugin-manager-{{ jenkins_plugin_manager_version }}.jar"
+    dest: /opt/jenkins-plugin-manager.jar
+    mode: "0644"
+
+- name: Copy the plugin list
+  ansible.builtin.copy:
+    src: plugins.txt
+    dest: "{{ jenkins_home }}/plugins.txt"
+    owner: jenkins
+    group: jenkins
+    mode: "0644"
+  register: plugin_list
+
+- name: Check whether plugins are already installed
+  ansible.builtin.stat:
+    path: "{{ jenkins_home }}/plugins/configuration-as-code.jpi"
+  register: casc_plugin
+
+- name: Install plugins
+  ansible.builtin.command: >-
+    java -jar /opt/jenkins-plugin-manager.jar
+    --war /usr/share/java/jenkins.war
+    --plugin-download-directory {{ jenkins_home }}/plugins
+    --plugin-file {{ jenkins_home }}/plugins.txt
+  become: true
+  become_user: jenkins
+  when: plugin_list.changed or not casc_plugin.stat.exists  # noqa: no-handler
+  changed_when: true
+  notify: Restart jenkins
+
+# ------------------------------------------------------- agent SSH identity
+- name: Generate the controller -> agent SSH key
+  community.crypto.openssh_keypair:
+    path: "{{ jenkins_agent_key }}"
+    type: ed25519
+    owner: jenkins
+    group: jenkins
+    mode: "0600"
+    comment: jenkins-controller@{{ project_name }}
+
+- name: Read the public key (installed on the agent by the next play)
+  ansible.builtin.slurp:
+    src: "{{ jenkins_agent_key }}.pub"
+  register: agent_public_key
+
+- name: Expose the public key to the agent play
+  ansible.builtin.set_fact:
+    jenkins_agent_public_key: "{{ agent_public_key.content | b64decode | trim }}"
+
+# ---------------------------------------------------------------- secrets
+- name: Write JCasC secrets (one file per secret)
+  ansible.builtin.copy:
+    dest: "{{ jenkins_secrets_dir }}/{{ item.key }}"
+    content: "{{ item.value }}"
+    owner: jenkins
+    group: jenkins
+    mode: "0400"
+  loop: "{{ casc_secrets | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+  notify: Restart jenkins
+  vars:
+    casc_secrets:
+      JENKINS_ADMIN_PASSWORD: "{{ jenkins_admin_password }}"
+      DOCKERHUB_TOKEN: "{{ dockerhub_token }}"
+      GITHUB_TOKEN: "{{ github_token }}"
+      COSIGN_PASSWORD: "{{ cosign_password | default('none', true) }}"
+      COSIGN_PRIVATE_KEY_B64: "{{ (cosign_private_key | default('none', true)) | b64encode }}"
+      SONAR_TOKEN: "{{ sonar_token | default('none', true) }}"
+
+# ------------------------------------------------------------------ JCasC
+- name: Render the Jenkins configuration
+  ansible.builtin.template:
+    src: jenkins.yaml.j2
+    dest: "{{ jenkins_casc_dir }}/jenkins.yaml"
+    owner: jenkins
+    group: jenkins
+    mode: "0640"
+  notify: Restart jenkins
+
+- name: Start and enable Jenkins
+  ansible.builtin.systemd_service:
+    name: jenkins
+    state: started
+    enabled: true
+
+- name: Apply pending restarts before checking health
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for Jenkins to answer
+  ansible.builtin.uri:
+    url: http://127.0.0.1:8080/login
+    status_code: 200
+  register: jenkins_login
+  until: jenkins_login.status == 200
+  retries: 30
+  delay: 10

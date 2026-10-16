@@ -1,0 +1,101 @@
+---
+# Prerequisites shared by every Kubernetes node: containerd + kubeadm/kubelet/kubectl.
+
+- name: Disable swap now
+  ansible.builtin.command: swapoff -a
+  when: ansible_swaptotal_mb > 0
+  changed_when: true
+
+- name: Disable swap permanently
+  ansible.builtin.replace:
+    path: /etc/fstab
+    regexp: '^([^#].*\sswap\s.*)$'
+    replace: '# \1'
+
+- name: Load kernel modules required by containerd and Calico
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+    persistent: present
+  loop:
+    - overlay
+    - br_netfilter
+
+- name: Configure kernel networking for Kubernetes
+  ansible.posix.sysctl:
+    name: "{{ item }}"
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+    reload: true
+  loop:
+    - net.bridge.bridge-nf-call-iptables
+    - net.bridge.bridge-nf-call-ip6tables
+    - net.ipv4.ip_forward
+
+# ------------------------------------------------------------ containerd
+- name: Configure the Docker repository (provides containerd.io)
+  ansible.builtin.include_role:
+    name: docker
+    tasks_from: repo
+
+- name: Install containerd
+  ansible.builtin.apt:
+    name: containerd.io
+    state: present
+    update_cache: true
+
+- name: Generate the default containerd configuration
+  ansible.builtin.shell: containerd config default > /etc/containerd/config.toml
+  args:
+    creates: /etc/containerd/config.toml.skyforge
+  notify: Restart containerd
+
+- name: Use the systemd cgroup driver (required by kubelet)
+  ansible.builtin.replace:
+    path: /etc/containerd/config.toml
+    regexp: 'SystemdCgroup = false'
+    replace: 'SystemdCgroup = true'
+  notify: Restart containerd
+
+- name: Mark the containerd configuration as managed
+  ansible.builtin.file:
+    path: /etc/containerd/config.toml.skyforge
+    state: touch
+    access_time: preserve
+    modification_time: preserve
+    mode: "0644"
+
+- name: Apply containerd changes before kubeadm runs
+  ansible.builtin.meta: flush_handlers
+
+# ------------------------------------------------------------ kubernetes
+- name: Download the Kubernetes apt key
+  ansible.builtin.get_url:
+    url: https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/Release.key
+    dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+    mode: "0644"
+
+- name: Add the Kubernetes apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc]
+      https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_version }}/deb/ /
+    filename: kubernetes
+    state: present
+
+- name: Install kubelet, kubeadm and kubectl
+  ansible.builtin.apt:
+    name: [kubelet, kubeadm, kubectl]
+    state: present
+    update_cache: true
+
+- name: Hold Kubernetes packages (upgrades are done deliberately with kubeadm)
+  ansible.builtin.dpkg_selections:
+    name: "{{ item }}"
+    selection: hold
+  loop: [kubelet, kubeadm, kubectl]
+
+- name: Enable kubelet
+  ansible.builtin.systemd_service:
+    name: kubelet
+    enabled: true

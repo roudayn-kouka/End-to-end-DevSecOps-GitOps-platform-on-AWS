@@ -1,0 +1,7 @@
+---
+# Full platform configuration: `make configure` (or ansible-playbook playbooks/site.yml)
+- name: Configure Jenkins
+  ansible.builtin.import_playbook: jenkins.yml
+
+- name: Configure Kubernetes and ArgoCD
+  ansible.builtin.import_playbook: kubernetes.yml

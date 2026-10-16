@@ -1,0 +1,8 @@
+---
+profile: production
+exclude_paths:
+  - inventory/aws_ec2.yml  # inventory plugin configuration, not a playbook
+  - .ansible_facts/
+skip_list:
+  # Role variables follow the component name (jenkins_*, docker_*) rather than the role name.
+  - var-naming[no-role-prefix]

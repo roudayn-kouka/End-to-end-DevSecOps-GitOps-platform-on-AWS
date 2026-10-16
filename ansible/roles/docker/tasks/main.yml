@@ -1,0 +1,32 @@
+---
+- name: Configure the Docker repository
+  ansible.builtin.import_tasks: repo.yml
+
+- name: Install Docker Engine with Buildx
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+    state: present
+    update_cache: true
+
+- name: Configure the Docker daemon (log rotation, live restore)
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ docker_daemon_config | to_nice_json }}\n"
+    mode: "0644"
+  notify: Restart docker
+
+- name: Start and enable Docker
+  ansible.builtin.systemd_service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Remove unused images, containers and build cache weekly
+  ansible.builtin.cron:
+    name: docker-prune
+    special_time: weekly
+    job: docker system prune --all --force --filter "until=168h" > /dev/null

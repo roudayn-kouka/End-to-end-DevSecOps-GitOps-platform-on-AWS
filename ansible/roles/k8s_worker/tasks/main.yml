@@ -1,0 +1,20 @@
+---
+- name: Join the cluster
+  ansible.builtin.command: "{{ hostvars[groups['k8s_control_plane'][0]].kubeadm_join_command }} --node-name {{ inventory_hostname }}"
+  args:
+    creates: /etc/kubernetes/kubelet.conf
+
+- name: Label the node as a worker
+  ansible.builtin.command: kubectl label node {{ inventory_hostname }} node-role.kubernetes.io/worker= --overwrite
+  delegate_to: "{{ groups['k8s_control_plane'][0] }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  register: label
+  changed_when: "'not labeled' not in label.stdout"
+
+- name: Wait for the node to be Ready
+  ansible.builtin.command: kubectl wait --for=condition=Ready node/{{ inventory_hostname }} --timeout=300s
+  delegate_to: "{{ groups['k8s_control_plane'][0] }}"
+  environment:
+    KUBECONFIG: /etc/kubernetes/admin.conf
+  changed_when: false

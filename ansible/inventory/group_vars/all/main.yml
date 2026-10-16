@@ -1,0 +1,41 @@
+---
+# ------------------------------------------------------------------ connection
+ansible_connection: community.aws.aws_ssm
+ansible_aws_ssm_region: "{{ aws_region }}"
+# Exported by `make configure` from `terraform output -raw ssm_bucket`.
+ansible_aws_ssm_bucket_name: "{{ lookup('ansible.builtin.env', 'SSM_BUCKET') }}"
+
+# --------------------------------------------------------------------- project
+project_name: skyforge
+aws_region: us-east-1
+github_owner: __GITHUB_USER__
+git_repo_url: "https://github.com/{{ github_owner }}/skyforge.git"
+git_branch: main
+dockerhub_namespace: __DOCKERHUB_USER__
+
+# Exported by `make configure` from `terraform output -raw jenkins_url`.
+jenkins_url: "{{ lookup('ansible.builtin.env', 'JENKINS_URL') | default('http://localhost:8080', true) }}"
+
+# Optional integrations (leave empty to disable the matching pipeline stage).
+sonar_host_url: ""
+
+# ------------------------------------------------------------------- versions
+java_package: openjdk-21-jre-headless
+kubernetes_version: "1.31"
+calico_version: v3.28.2
+argocd_version: v2.13.2
+yq_version: v4.44.3
+jenkins_plugin_manager_version: 2.13.2
+
+pod_network_cidr: 192.168.0.0/16
+
+# --------------------------------------------------------------------- secrets
+# Defined in vault.yml (copy vault.yml.example, then `ansible-vault encrypt`).
+jenkins_admin_password: "{{ vault_jenkins_admin_password }}"
+dockerhub_username: "{{ vault_dockerhub_username }}"
+dockerhub_token: "{{ vault_dockerhub_token }}"
+github_username: "{{ vault_github_username }}"
+github_token: "{{ vault_github_token }}"
+cosign_private_key: "{{ vault_cosign_private_key | default('') }}"
+cosign_password: "{{ vault_cosign_password | default('') }}"
+sonar_token: "{{ vault_sonar_token | default('') }}"

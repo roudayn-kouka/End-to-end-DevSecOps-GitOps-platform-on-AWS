@@ -1,0 +1,30 @@
+# Local development stack: `docker compose up --build` then open http://localhost:5000
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    ports:
+      - "5000:5000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://skyforge:skyforge@db:5432/skyforge
+      APP_ENV: local
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: skyforge
+      POSTGRES_PASSWORD: skyforge  # local only
+      POSTGRES_DB: skyforge
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U skyforge"]
+      interval: 5s
+      retries: 10
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+volumes:
+  db-data:

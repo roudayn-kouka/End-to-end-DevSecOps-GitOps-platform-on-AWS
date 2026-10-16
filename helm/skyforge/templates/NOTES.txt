@@ -1,0 +1,14 @@
+SkyForge Tasks ({{ .Values.environment }}) deployed in namespace {{ .Release.Namespace }}.
+
+Image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+{{- if .Values.ingress.host }}
+URL:   http://{{ .Values.ingress.host }}/
+{{- else }}
+URL:   the ALB address (terraform output app_url)
+{{- end }}
+
+{{- if not .Values.database.sealedSecret.encryptedData }}
+
+WARNING: no database credentials are sealed for this environment yet.
+Run `make seal-secrets ENV={{ .Values.environment }}` and commit the generated file.
+{{- end }}

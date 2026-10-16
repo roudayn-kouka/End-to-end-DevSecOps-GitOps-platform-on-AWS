@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SkyForge Tasks</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <main class="card">
+        <header>
+            <h1>SkyForge <span>Tasks</span></h1>
+            <p class="subtitle">Delivered by Jenkins &rarr; Docker &rarr; ArgoCD &rarr; Kubernetes on AWS</p>
+        </header>
+
+        <form id="task-form" autocomplete="off">
+            <input id="task-title" type="text" maxlength="200" placeholder="What needs to be done?" required>
+            <button type="submit">Add</button>
+        </form>
+
+        <ul id="task-list" aria-live="polite"></ul>
+        <p id="empty" class="muted">No tasks yet &mdash; add your first one.</p>
+
+        <footer>
+            <span class="badge env-{{ environment }}">{{ environment }}</span>
+            <span>v{{ version }} &middot; {{ commit }}</span>
+            <span>&copy; Roudayna Kouka</span>
+        </footer>
+    </main>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: Roudayna Kouka
+  description: Base configuration shared by every SkyForge node
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Ubuntu
+      versions: [jammy]
+dependencies: []

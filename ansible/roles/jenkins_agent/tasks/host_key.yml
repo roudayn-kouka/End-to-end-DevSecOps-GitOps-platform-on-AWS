@@ -1,0 +1,11 @@
+---
+# Runs before the controller is configured: Jenkins pins this host key
+# instead of blindly trusting the agent on first connection.
+- name: Read the agent SSH host key
+  ansible.builtin.slurp:
+    src: /etc/ssh/ssh_host_ed25519_key.pub
+  register: host_key
+
+- name: Expose the host key to the controller play
+  ansible.builtin.set_fact:
+    agent_host_key: "{{ (host_key.content | b64decode).split()[:2] | join(' ') }}"

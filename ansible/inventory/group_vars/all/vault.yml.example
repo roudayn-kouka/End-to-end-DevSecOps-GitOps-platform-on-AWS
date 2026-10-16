@@ -1,0 +1,20 @@
+---
+# cp vault.yml.example vault.yml && ansible-vault encrypt vault.yml
+# vault.yml is git-ignored: never commit it unencrypted.
+
+vault_jenkins_admin_password: "change-me-to-a-long-random-password"
+
+# Docker Hub access token (Account settings > Security > New access token, Read & Write)
+vault_dockerhub_username: "your-dockerhub-user"
+vault_dockerhub_token: "dckr_pat_xxx"
+
+# GitHub fine-grained token with "Contents: Read and write" on the skyforge repository
+vault_github_username: "your-github-user"
+vault_github_token: "github_pat_xxx"
+
+# Optional: image signing (cosign generate-key-pair)
+vault_cosign_private_key: ""
+vault_cosign_password: ""
+
+# Optional: SonarQube / SonarCloud token (also set sonar_host_url in main.yml)
+vault_sonar_token: ""

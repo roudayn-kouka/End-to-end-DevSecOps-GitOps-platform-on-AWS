@@ -1,0 +1,21 @@
+environment: prod
+
+image:
+  repository: docker.io/__DOCKERHUB_USER__/skyforge-tasks
+  # Promoted from dev by the manual approval stage of the pipeline.
+  tag: latest
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 5
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+ingress:
+  host: ""
+
+database:
+  postgres:
+    storage: 5Gi

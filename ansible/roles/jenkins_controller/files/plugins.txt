@@ -1,0 +1,20 @@
+# Installed by jenkins-plugin-manager (dependencies are resolved automatically).
+configuration-as-code
+job-dsl
+workflow-aggregator
+pipeline-groovy-lib
+pipeline-stage-view
+pipeline-utility-steps
+git
+github
+credentials-binding
+ssh-slaves
+ssh-credentials
+plain-credentials
+ws-cleanup
+timestamper
+ansicolor
+build-timeout
+junit
+coverage
+sonar

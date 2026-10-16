@@ -1,0 +1,37 @@
+# Continuously deployed: every green pipeline bumps image.tag in values-dev.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: skyforge-dev
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: skyforge
+  source:
+    repoURL: https://github.com/__GITHUB_USER__/skyforge.git
+    targetRevision: main
+    path: helm/skyforge
+    helm:
+      releaseName: skyforge
+      valueFiles:
+        - values-dev.yaml
+        - secrets-dev.yaml
+      ignoreMissingValueFiles: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: skyforge-dev
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

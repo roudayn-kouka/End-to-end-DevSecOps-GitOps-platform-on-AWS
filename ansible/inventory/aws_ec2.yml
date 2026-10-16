@@ -1,0 +1,20 @@
+---
+# Dynamic inventory: discovers the nodes created by Terraform through their tags.
+plugin: amazon.aws.aws_ec2
+regions:
+  - us-east-1
+filters:
+  tag:Project: skyforge
+  instance-state-name: running
+hostnames:
+  - tag:Name
+compose:
+  # The SSM connection plugin targets instances by ID.
+  ansible_host: instance_id
+  private_ip: private_ip_address
+groups:
+  jenkins_controller: tags.Role == "jenkins-master"
+  jenkins_agent: tags.Role == "jenkins-agent"
+  k8s_control_plane: tags.Role == "k8s-master"
+  k8s_workers: tags.Role == "k8s-worker"
+  k8s_cluster: tags.Role.startswith("k8s-")

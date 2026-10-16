@@ -1,0 +1,46 @@
+# Two ArgoCD projects = two blast radiuses:
+#   platform -> cluster add-ons, may manage cluster-scoped resources (CRDs, StorageClasses...)
+#   skyforge -> the application, restricted to its own namespaces and to this Git repository
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: platform
+  namespace: argocd
+spec:
+  description: Cluster add-ons (ingress, monitoring, secrets, storage, metrics)
+  sourceRepos:
+    - https://github.com/__GITHUB_USER__/skyforge.git
+    - https://github.com/rancher/local-path-provisioner.git
+    - https://bitnami-labs.github.io/sealed-secrets
+    - https://kubernetes-sigs.github.io/metrics-server/
+    - https://prometheus-community.github.io/helm-charts
+    - https://traefik.github.io/charts
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: "*"
+  clusterResourceWhitelist:
+    - group: "*"
+      kind: "*"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: skyforge
+  namespace: argocd
+spec:
+  description: SkyForge Tasks application (dev and prod)
+  sourceRepos:
+    - https://github.com/__GITHUB_USER__/skyforge.git
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: skyforge-dev
+    - server: https://kubernetes.default.svc
+      namespace: skyforge-prod
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+  orphanedResources:
+    warn: true

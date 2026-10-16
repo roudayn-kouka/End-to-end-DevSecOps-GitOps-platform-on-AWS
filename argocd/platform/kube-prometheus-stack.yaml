@@ -1,0 +1,79 @@
+# Values for the kube-prometheus-stack Application (argocd/apps/kube-prometheus-stack.yaml).
+
+# kubeadm binds these components to localhost: scraping them would only raise false alerts.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    # Discover ServiceMonitors / PrometheusRules from every namespace (app charts, traefik...).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    retention: 7d
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  alertmanagerSpec:
+    # SealedSecret from argocd/platform/monitoring-secrets/ (scripts/seal-secrets.sh).
+    secrets:
+      - alertmanager-slack
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: slack
+      group_by: [alertname, namespace]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - receiver: "null"
+          matchers: ['alertname = "Watchdog"']
+        - receiver: "null"
+          matchers: ['alertname = "InfoInhibitor"']
+    receivers:
+      - name: "null"
+      - name: slack
+        slack_configs:
+          - api_url_file: /etc/alertmanager/secrets/alertmanager-slack/webhook-url
+            channel: "#skyforge-alerts"
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+            text: >-
+              {{ range .Alerts }}*{{ .Annotations.summary }}*
+              {{ .Annotations.description }}
+              {{ end }}
+
+grafana:
+  admin:
+    # SealedSecret from argocd/platform/monitoring-secrets/ (scripts/seal-secrets.sh).
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  sidecar:
+    dashboards:
+      enabled: true
+      searchNamespace: ALL
+      folderAnnotation: grafana_folder
+      provider:
+        foldersFromFilesStructure: true

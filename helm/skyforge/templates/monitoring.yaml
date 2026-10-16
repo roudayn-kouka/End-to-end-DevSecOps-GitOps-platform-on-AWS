@@ -1,0 +1,76 @@
+{{- if .Values.metrics.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "skyforge.name" . }}
+  labels:
+    {{- include "skyforge.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "skyforge.app.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}
+{{- if .Values.metrics.prometheusRule.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "skyforge.name" . }}
+  labels:
+    {{- include "skyforge.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: skyforge.{{ .Values.environment }}
+      rules:
+        - alert: SkyForgeDown
+          expr: absent(up{namespace="{{ .Release.Namespace }}", service="{{ include "skyforge.name" . }}"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "SkyForge ({{ .Values.environment }}) has no healthy instance"
+            description: "Prometheus cannot scrape any SkyForge pod in {{ .Release.Namespace }} for 5 minutes."
+        - alert: SkyForgeHighErrorRate
+          expr: |
+            sum(rate(skyforge_http_requests_total{namespace="{{ .Release.Namespace }}", status=~"5.."}[5m]))
+              /
+            sum(rate(skyforge_http_requests_total{namespace="{{ .Release.Namespace }}"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "SkyForge ({{ .Values.environment }}) 5xx ratio above 5%"
+        - alert: SkyForgeHighLatency
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(skyforge_http_request_duration_seconds_bucket{namespace="{{ .Release.Namespace }}"}[5m]))
+            ) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "SkyForge ({{ .Values.environment }}) p95 latency above 500ms"
+{{- end }}
+{{- if .Values.metrics.grafanaDashboard.enabled }}
+---
+# Picked up by the Grafana dashboard sidecar (label grafana_dashboard=1).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "skyforge.name" . }}-dashboard
+  labels:
+    {{- include "skyforge.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: SkyForge
+data:
+  skyforge-{{ .Values.environment }}.json: |-
+    {{- .Files.Get "dashboards/skyforge.json"
+        | replace "__NAMESPACE__" .Release.Namespace
+        | replace "__ENV__" .Values.environment
+        | nindent 4 }}
+{{- end }}

@@ -1,0 +1,32 @@
+---
+# Build agent: Java (remoting), Docker and a few CLI tools.
+# Linters and scanners (hadolint, gitleaks, trivy, cosign, sonar) run as pinned containers,
+# so the agent stays small and every tool version lives in the pipeline code.
+
+- name: Install Java and Git
+  ansible.builtin.apt:
+    name:
+      - "{{ java_package }}"
+      - git
+    state: present
+    update_cache: true
+
+- name: Create the jenkins user (member of the docker group)
+  ansible.builtin.user:
+    name: jenkins
+    home: /home/jenkins
+    shell: /bin/bash
+    groups: docker
+    append: true
+
+- name: Authorize the controller key
+  ansible.posix.authorized_key:
+    user: jenkins
+    key: "{{ hostvars[groups['jenkins_controller'][0]].jenkins_agent_public_key }}"
+    exclusive: true
+
+- name: Install yq (used to bump image tags in the Helm values)
+  ansible.builtin.get_url:
+    url: "https://github.com/mikefarah/yq/releases/download/{{ yq_version }}/yq_linux_amd64"
+    dest: /usr/local/bin/yq
+    mode: "0755"

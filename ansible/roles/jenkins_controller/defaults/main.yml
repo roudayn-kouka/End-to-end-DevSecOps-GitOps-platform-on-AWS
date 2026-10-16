@@ -1,0 +1,10 @@
+---
+jenkins_home: /var/lib/jenkins
+jenkins_casc_dir: "{{ jenkins_home }}/casc"
+# Each file in this directory becomes a ${VARIABLE} resolvable by JCasC (kept out of jenkins.yaml).
+jenkins_secrets_dir: "{{ jenkins_home }}/casc-secrets"
+jenkins_repo_key_url: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
+jenkins_agent_key: "{{ jenkins_home }}/.ssh/agent_ed25519"
+jenkins_agent_name: agent-1
+jenkins_agent_executors: 2
+jenkins_job_poll_schedule: "H/2 * * * *"

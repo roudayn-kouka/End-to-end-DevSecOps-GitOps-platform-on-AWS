@@ -1,0 +1,15 @@
+environment: dev
+
+image:
+  repository: docker.io/__DOCKERHUB_USER__/skyforge-tasks
+  tag: latest
+
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 2
+
+podDisruptionBudget:
+  enabled: false
+
+ingress:
+  host: dev.skyforge.local

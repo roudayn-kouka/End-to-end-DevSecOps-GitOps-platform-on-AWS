@@ -1,0 +1,54 @@
+# Ingress controller, exposed as NodePort 30080 and fronted by the AWS ALB.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: platform
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: 33.2.1
+    helm:
+      valuesObject:
+        deployment:
+          replicas: 2
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+        service:
+          type: NodePort
+        ports:
+          web:
+            nodePort: 30080  # must match terraform var.ingress_node_port
+            forwardedHeaders:
+              trustedIPs: ["10.20.0.0/16"]  # the ALB lives in the VPC
+          websecure:
+            expose:
+              default: false  # TLS is terminated by the ALB (ACM certificate)
+        ingressClass:
+          enabled: true
+          isDefaultClass: true
+        logs:
+          access:
+            enabled: true
+        metrics:
+          prometheus:
+            service:
+              enabled: true
+            serviceMonitor:
+              enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

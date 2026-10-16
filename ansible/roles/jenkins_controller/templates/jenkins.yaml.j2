@@ -1,0 +1,142 @@
+# {{ ansible_managed }}
+# Jenkins Configuration as Code. ${VARIABLES} are resolved from {{ jenkins_secrets_dir }}.
+jenkins:
+  systemMessage: "SkyForge CI - configured as code (Ansible + JCasC). Manual changes are overwritten."
+  numExecutors: 0  # the controller only orchestrates; builds run on the agent
+  mode: EXCLUSIVE
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: admin
+          name: Administrator
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  crumbIssuer:
+    standard:
+      excludeClientIPFromCrumb: true  # Jenkins runs behind the ALB
+  markupFormatter: plainText
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: COSIGN_ENABLED
+            value: "{{ 'true' if cosign_private_key else 'false' }}"
+          - key: SONAR_HOST_URL
+            value: "{{ sonar_host_url }}"
+  nodes:
+    - permanent:
+        name: "{{ jenkins_agent_name }}"
+        labelString: "docker linux"
+        remoteFS: /home/jenkins
+        numExecutors: {{ jenkins_agent_executors }}
+        mode: NORMAL
+        retentionStrategy: always
+        launcher:
+          ssh:
+            host: "{{ hostvars[groups['jenkins_agent'][0]].private_ip }}"
+            port: 22
+            credentialsId: agent-ssh
+            launchTimeoutSeconds: 60
+            maxNumRetries: 20
+            retryWaitTime: 15
+            sshHostKeyVerificationStrategy:
+              manuallyProvidedKeyVerificationStrategy:
+                key: "{{ hostvars[groups['jenkins_agent'][0]].agent_host_key }}"
+
+security:
+  globalJobDslSecurityConfiguration:
+    useScriptSecurity: false  # the only seed job is defined here, as code
+
+unclassified:
+  location:
+    url: "{{ jenkins_url }}/"
+  globalLibraries:
+    libraries:
+      - name: skyforge-lib
+        defaultVersion: "{{ git_branch }}"
+        implicit: false
+        allowVersionOverride: true
+        retriever:
+          modernSCM:
+            libraryPath: jenkins/shared-library/
+            scm:
+              git:
+                remote: "{{ git_repo_url }}"
+                credentialsId: github
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - basicSSHUserPrivateKey:
+              scope: SYSTEM
+              id: agent-ssh
+              username: jenkins
+              description: Controller to agent SSH key
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:{{ jenkins_agent_key }}}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: dockerhub
+              description: Docker Hub push token
+              username: "{{ dockerhub_username }}"
+              password: "${DOCKERHUB_TOKEN}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: github
+              description: GitHub token (checkout + GitOps write-back)
+              username: "{{ github_username }}"
+              password: "${GITHUB_TOKEN}"
+{% if cosign_private_key %}
+          - file:
+              scope: GLOBAL
+              id: cosign-key
+              description: Cosign private key used to sign images
+              fileName: cosign.key
+              secretBytes: "${COSIGN_PRIVATE_KEY_B64}"
+          - string:
+              scope: GLOBAL
+              id: cosign-password
+              description: Cosign private key password
+              secret: "${COSIGN_PASSWORD}"
+{% endif %}
+{% if sonar_token %}
+          - string:
+              scope: GLOBAL
+              id: sonar-token
+              description: SonarQube analysis token
+              secret: "${SONAR_TOKEN}"
+{% endif %}
+
+jobs:
+  - script: |
+      pipelineJob('skyforge') {
+        description('Build, test, scan, sign and deliver SkyForge Tasks through GitOps')
+        logRotator { numToKeep(30) }
+        properties {
+          disableConcurrentBuilds()
+          pipelineTriggers {
+            triggers {
+              pollSCM { scmpoll_spec('{{ jenkins_job_poll_schedule }}') }
+            }
+          }
+        }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('{{ git_repo_url }}')
+                  credentials('github')
+                }
+                branch('*/{{ git_branch }}')
+              }
+            }
+            scriptPath('jenkins/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+      }

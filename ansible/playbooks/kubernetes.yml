@@ -1,0 +1,21 @@
+---
+- name: Prepare every Kubernetes node
+  hosts: k8s_cluster
+  roles:
+    - common
+    - k8s_common
+
+- name: Initialize the control plane
+  hosts: k8s_control_plane
+  roles:
+    - k8s_control_plane
+
+- name: Join the workers
+  hosts: k8s_workers
+  roles:
+    - k8s_worker
+
+- name: Install ArgoCD and bootstrap GitOps
+  hosts: k8s_control_plane
+  roles:
+    - argocd

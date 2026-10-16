@@ -1,0 +1,73 @@
+# Default values; environment specifics live in values-dev.yaml / values-prod.yaml.
+
+environment: dev
+
+image:
+  repository: docker.io/__DOCKERHUB_USER__/skyforge-tasks
+  # Bumped automatically by the Jenkins pipeline (GitOps write-back).
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 2
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+gunicorn:
+  workers: 2
+  threads: 4
+
+service:
+  port: 80
+
+ingress:
+  enabled: true
+  className: traefik
+  # Empty host = catch-all rule (used by prod so the ALB URL serves it directly).
+  host: ""
+
+networkPolicy:
+  enabled: true
+  ingressControllerNamespace: traefik
+  monitoringNamespace: monitoring
+
+metrics:
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+  prometheusRule:
+    enabled: true
+  grafanaDashboard:
+    enabled: true
+
+database:
+  name: skyforge
+  # Secret holding `username` and `password`. Created from a SealedSecret when
+  # sealedSecret.encryptedData is set (see scripts/seal-secrets.sh).
+  secretName: skyforge-db
+  sealedSecret:
+    encryptedData: {}
+  postgres:
+    image: postgres:16.4-alpine
+    storage: 2Gi
+    storageClassName: ""  # default class (local-path)
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 512Mi

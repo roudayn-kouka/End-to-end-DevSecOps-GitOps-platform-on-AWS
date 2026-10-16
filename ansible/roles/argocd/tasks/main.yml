@@ -1,0 +1,76 @@
+---
+# Installs ArgoCD and hands the cluster over to GitOps: from here on, everything
+# in the cluster (platform add-ons and the application) is declared in argocd/.
+
+- name: Create the argocd namespace
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+  args:
+    executable: /bin/bash
+  register: ns
+  changed_when: "'created' in ns.stdout"
+
+- name: Install ArgoCD {{ argocd_version }}
+  ansible.builtin.command: >-
+    kubectl apply --server-side --force-conflicts -n argocd
+    -f https://raw.githubusercontent.com/argoproj/argo-cd/{{ argocd_version }}/manifests/install.yaml
+  register: argocd_install
+  changed_when: true
+
+- name: Restore health checks on Application resources (needed for sync waves in app-of-apps)
+  ansible.builtin.command: >-
+    kubectl patch configmap argocd-cm -n argocd --type merge
+    -p '{{ argocd_cm_patch | to_json }}'
+  register: cm_patch
+  changed_when: "'no change' not in cm_patch.stdout"
+  vars:
+    argocd_cm_patch:
+      data:
+        resource.customizations.health.argoproj.io_Application: |
+          hs = {}
+          hs.status = "Progressing"
+          hs.message = ""
+          if obj.status ~= nil and obj.status.health ~= nil then
+            hs.status = obj.status.health.status
+            if obj.status.health.message ~= nil then
+              hs.message = obj.status.health.message
+            end
+          end
+          return hs
+
+- name: Wait for ArgoCD to be available
+  ansible.builtin.command: kubectl rollout status {{ item }} -n argocd --timeout=300s
+  loop:
+    - deployment/argocd-server
+    - deployment/argocd-repo-server
+    - statefulset/argocd-application-controller
+  changed_when: false
+
+- name: Register the Git repository (needed only if it is private)
+  ansible.builtin.shell: |
+    set -o pipefail
+    kubectl create secret generic skyforge-repo -n argocd \
+      --from-literal=type=git \
+      --from-literal=url={{ git_repo_url }} \
+      --from-literal=username={{ github_username }} \
+      --from-literal=password={{ github_token }} \
+      --dry-run=client -o yaml \
+    | kubectl label --local -f - argocd.argoproj.io/secret-type=repository -o yaml \
+    | kubectl apply -f -
+  args:
+    executable: /bin/bash
+  no_log: true
+  register: repo_secret
+  changed_when: "'unchanged' not in repo_secret.stdout"
+
+- name: Copy the GitOps bootstrap manifests
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../argocd/bootstrap/"
+    dest: /opt/skyforge/argocd-bootstrap/
+    mode: "0644"
+
+- name: Apply the AppProject and the root Application (app of apps)
+  ansible.builtin.command: kubectl apply -f /opt/skyforge/argocd-bootstrap/
+  register: bootstrap
+  changed_when: "'unchanged' not in bootstrap.stdout"

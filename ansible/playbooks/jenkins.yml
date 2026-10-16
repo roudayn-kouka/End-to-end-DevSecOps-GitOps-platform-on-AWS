@@ -1,0 +1,22 @@
+---
+- name: Collect the agent host key (pinned by the controller)
+  hosts: jenkins_agent
+  gather_facts: false
+  tasks:
+    - name: Read host key
+      ansible.builtin.include_role:
+        name: jenkins_agent
+        tasks_from: host_key
+
+- name: Configure the Jenkins controller
+  hosts: jenkins_controller
+  roles:
+    - common
+    - jenkins_controller
+
+- name: Configure the Jenkins build agent
+  hosts: jenkins_agent
+  roles:
+    - common
+    - docker
+    - jenkins_agent

@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "skyforge.name" . }}
+  labels:
+    {{- include "skyforge.labels" . | nindent 4 }}
+    {{- include "skyforge.app.selectorLabels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "skyforge.app.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "skyforge.labels" . | nindent 8 }}
+        {{- include "skyforge.app.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "skyforge.name" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "skyforge.podSecurityContext" . | nindent 8 }}
+        runAsUser: 10001
+        runAsGroup: 10001
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "skyforge.app.selectorLabels" . | nindent 14 }}
+      containers:
+        - name: api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 5000
+          env:
+            - name: APP_ENV
+              value: {{ .Values.environment | quote }}
+            - name: APP_VERSION
+              value: {{ .Values.image.tag | quote }}
+            - name: GUNICORN_WORKERS
+              value: {{ .Values.gunicorn.workers | quote }}
+            - name: GUNICORN_THREADS
+              value: {{ .Values.gunicorn.threads | quote }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName }}
+                  key: username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.secretName }}
+                  key: password
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://$(DB_USER):$(DB_PASSWORD)@{{ include "skyforge.db.host" . }}:5432/{{ .Values.database.name }}"
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 15
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "skyforge.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi

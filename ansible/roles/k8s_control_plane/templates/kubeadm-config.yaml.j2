@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: {{ private_ip }}
+nodeRegistration:
+  name: {{ inventory_hostname }}
+  criSocket: unix:///run/containerd/containerd.sock
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: {{ project_name }}
+kubernetesVersion: {{ kubeadm_version.stdout }}
+networking:
+  podSubnet: {{ pod_network_cidr }}
+apiServer:
+  # 127.0.0.1 lets kubectl reach the API through an SSM port-forwarding tunnel.
+  certSANs:
+    - 127.0.0.1
+    - localhost
+    - {{ private_ip }}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
