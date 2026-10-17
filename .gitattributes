@@ -1,0 +1,4 @@
+# Scripts must keep LF line endings to run on Linux, even when committed from Windows.
+* text=auto eol=lf
+*.png binary
+*.jpg binary

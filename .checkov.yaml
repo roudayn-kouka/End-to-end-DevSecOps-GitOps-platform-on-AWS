@@ -1,0 +1,19 @@
+# Accepted risks for this lab, each one documented (everything else must pass).
+skip-check:
+  - CKV_AWS_144  # S3 cross-region replication: state bucket is versioned, replication is overkill for a lab
+  - CKV_AWS_145  # S3 KMS CMK: SSE-KMS with the AWS managed key is used
+  - CKV_AWS_18   # S3 access logging: not needed for the state / SSM transfer buckets
+  - CKV2_AWS_62  # S3 event notifications: not needed
+  - CKV_AWS_91   # ALB access logs: CloudWatch metrics + Prometheus are used instead
+  - CKV_AWS_150  # ALB deletion protection: the lab must be destroyable with `make destroy`
+  - CKV2_AWS_28  # WAF on the ALB: out of scope (documented in the roadmap)
+  - CKV_AWS_2    # ALB HTTP listener: HTTPS is enabled as soon as a domain is provided
+  - CKV_AWS_103  # TLS policy on HTTP listener: same as above
+  - CKV2_AWS_20  # HTTP -> HTTPS redirect: same as above
+  - CKV_AWS_126  # Detailed monitoring: 5-minute basic monitoring is enough
+  - CKV_AWS_135  # EBS optimized: enabled by default on t3 instances
+  - CKV_AWS_158  # CloudWatch log group KMS CMK: AWS managed encryption is used
+  - CKV_AWS_338  # Log retention >= 1 year: 14 days of flow logs is enough for a lab
+  - CKV2_AWS_5   # SG attachment: false positive with for_each / referenced SGs
+  - CKV_AWS_382  # Unrestricted egress: nodes need the internet (packages, registries) through NAT
+  - CKV2_AWS_57  # Secrets Manager rotation: no Secrets Manager secret is used

@@ -1,0 +1,147 @@
+# Pull-request quality gates. Delivery (build, push, GitOps) is done by Jenkins.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: App - lint & tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: pytest --junitxml=junit.xml --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-reports
+          path: |
+            app/junit.xml
+            app/coverage.xml
+
+  container:
+    name: Container - lint, build & scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: app/Dockerfile
+          config: .hadolint.yaml
+      - uses: docker/setup-buildx-action@v3
+      - name: Build runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          target: runtime
+          load: true
+          tags: skyforge-tasks:ci
+      - name: Trivy vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: skyforge-tasks:ci
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  helm:
+    name: Helm - lint & schema validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Lint
+        run: |
+          for env in dev prod; do
+            helm lint helm/skyforge -f helm/skyforge/values-$env.yaml
+          done
+      - name: Validate rendered manifests with kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          for env in dev prod; do
+            helm template skyforge helm/skyforge -n skyforge-$env -f helm/skyforge/values-$env.yaml \
+              | ./kubeconform -strict -summary -kubernetes-version 1.31.0 \
+                  -schema-location default \
+                  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          done
+      - name: Validate ArgoCD manifests
+        run: |
+          ./kubeconform -strict -summary \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            argocd/bootstrap argocd/apps
+
+  terraform:
+    name: Terraform - fmt, validate & Checkov
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.5
+      - run: terraform fmt -check -recursive terraform
+      - run: |
+          for dir in terraform terraform/bootstrap; do
+            terraform -chdir=$dir init -backend=false -input=false
+            terraform -chdir=$dir validate
+          done
+      - name: Checkov (security misconfigurations)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: terraform
+          framework: terraform
+          config_file: .checkov.yaml
+
+  ansible:
+    name: Ansible - lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ansible-core==2.17.5 ansible-lint==24.10.0
+      - run: ansible-galaxy collection install -r ansible/requirements.yml
+      - run: ansible-lint
+        working-directory: ansible
+
+  shell:
+    name: Shell - shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck scripts/*.sh .devcontainer/*.sh
+
+  secrets:
+    name: Secrets - gitleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml

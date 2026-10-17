@@ -1,0 +1,17 @@
+title = "SkyForge gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Templates, placeholders and encrypted material"
+paths = [
+  '''ansible/inventory/group_vars/all/vault\.yml\.example''',
+  '''helm/skyforge/secrets-.*\.yaml''',           # SealedSecrets: encrypted for the cluster key
+  '''argocd/platform/monitoring-secrets/.*\.yaml''',
+]
+regexes = [
+  '''change-me''',
+  '''dckr_pat_xxx''',
+  '''github_pat_xxx''',
+]

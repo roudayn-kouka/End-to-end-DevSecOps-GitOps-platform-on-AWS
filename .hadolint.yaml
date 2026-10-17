@@ -1,0 +1,6 @@
+failure-threshold: warning
+trustedRegistries:
+  - docker.io
+ignored:
+  # Wheels are built from the pinned requirements.txt in the builder stage.
+  - DL3013
