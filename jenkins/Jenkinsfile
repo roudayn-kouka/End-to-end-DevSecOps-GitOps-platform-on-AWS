@@ -1,0 +1,131 @@
+// SkyForge CI pipeline - Roudayna Kouka
+//
+//  secrets scan -> Dockerfile lint -> unit tests -> (SonarQube) -> build -> Trivy gate
+//  -> push -> (cosign sign) -> GitOps bump dev -> manual approval -> GitOps bump prod
+//
+// Deployment itself is done by ArgoCD, which watches helm/skyforge/values-<env>.yaml.
+
+@Library('skyforge-lib') _
+
+pipeline {
+    agent { label 'docker' }
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        timeout(time: 45, unit: 'MINUTES')
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        IMAGE_REPO = 'docker.io/__DOCKERHUB_USER__/skyforge-tasks'
+        APP_DIR    = 'app'
+        CHART_DIR  = 'helm/skyforge'
+    }
+
+    stages {
+        stage('CI') {
+            // GitOps commits pushed by this pipeline carry [skip ci]: do not rebuild for them.
+            when {
+                expression { !sh(script: 'git log -1 --pretty=%B', returnStdout: true).contains('[skip ci]') }
+            }
+
+            stages {
+                stage('Prepare') {
+                    steps {
+                        script {
+                            env.GIT_SHORT = sh(script: 'git rev-parse --short=7 HEAD', returnStdout: true).trim()
+                            env.IMAGE_TAG = "${env.GIT_SHORT}-${env.BUILD_NUMBER}"
+                            env.IMAGE = "${env.IMAGE_REPO}:${env.IMAGE_TAG}"
+                            currentBuild.displayName = "#${env.BUILD_NUMBER} ${env.IMAGE_TAG}"
+                        }
+                    }
+                }
+
+                stage('Quality gates') {
+                    parallel {
+                        stage('Secrets scan') {
+                            steps { secretScan() }
+                        }
+                        stage('Dockerfile lint') {
+                            steps { lintDockerfile(dockerfile: "${APP_DIR}/Dockerfile") }
+                        }
+                        stage('Unit tests') {
+                            steps { runTests(context: APP_DIR) }
+                            post {
+                                always {
+                                    junit testResults: 'reports/junit.xml', allowEmptyResults: true
+                                    recordCoverage tools: [[parser: 'COBERTURA', pattern: 'reports/coverage.xml']],
+                                                   sourceDirectories: [[path: "${APP_DIR}"]]
+                                }
+                            }
+                        }
+                    }
+                }
+
+                stage('SonarQube') {
+                    when { expression { env.SONAR_HOST_URL?.trim() } }
+                    steps { sonarScan() }
+                }
+
+                stage('Build image') {
+                    steps {
+                        buildImage(context: APP_DIR, image: env.IMAGE, version: env.IMAGE_TAG, commit: env.GIT_COMMIT)
+                    }
+                }
+
+                stage('Trivy scan') {
+                    steps { scanImage(image: env.IMAGE) }
+                }
+
+                stage('Push image') {
+                    steps {
+                        script { env.IMAGE_DIGEST = pushImage(image: env.IMAGE) }
+                    }
+                }
+
+                stage('Sign image') {
+                    when { environment name: 'COSIGN_ENABLED', value: 'true' }
+                    steps { signImage(imageDigest: env.IMAGE_DIGEST) }
+                }
+
+                stage('Deploy dev (GitOps)') {
+                    steps {
+                        gitopsUpdate(environment: 'dev', chartDir: CHART_DIR, tag: env.IMAGE_TAG)
+                    }
+                }
+
+                stage('Promote to prod') {
+                    steps {
+                        script {
+                            boolean approved = false
+                            try {
+                                timeout(time: 15, unit: 'MINUTES') {
+                                    input message: "Promote ${env.IMAGE_TAG} to production?", ok: 'Deploy to prod'
+                                }
+                                approved = true
+                            } catch (err) {
+                                echo "Promotion not approved (${err.getClass().simpleName}); prod stays on its current version."
+                            }
+                            if (approved) {
+                                gitopsUpdate(environment: 'prod', chartDir: CHART_DIR, tag: env.IMAGE_TAG)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'docker logout docker.io >/dev/null 2>&1 || true'
+            sh "docker image rm ${env.IMAGE ?: 'none'} >/dev/null 2>&1 || true"
+            cleanWs()
+        }
+        success {
+            echo "Delivered ${env.IMAGE ?: 'nothing (GitOps commit)'}"
+        }
+    }
+}
